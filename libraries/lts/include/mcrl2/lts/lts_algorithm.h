@@ -198,6 +198,13 @@ bool destructive_compare(LTS_TYPE& l1,
       // Weak trace equivalence now corresponds to bisimilarity
       return detail::destructive_bisimulation_compare(l1,l2,false,false,generate_counter_examples);
     }
+    case lts_eq_coupled_sim:
+    {
+      // TODO 2019-08-04 Bachelor Thesis
+      std::cout << "TODO 2019-08-04: This will check for coupled similarity.\n";
+      std::cout << "TODO 2019-08-11: How to read the graph.\n";
+      return true;
+    }
     default:
     throw mcrl2::runtime_error("Comparison for this equivalence is not available");
     return false;
