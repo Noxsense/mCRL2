@@ -77,9 +77,9 @@ typedef struct _game_move
 {
   cs_game_node from, to;
   size_t act;
-  // ? action_label;
+  std::string action_label;
   bool weak;
-} move;
+} cs_game_move;
 
 bool operator==(const cs_game_node &n0, const cs_game_node &n1)
 {
@@ -130,26 +130,26 @@ std::string to_string(const cs_game_node &n)
   }
 }
 
-std::string to_string(const move &m)
+std::string to_string(const cs_game_move &m)
 {
   std::string tag0 = m.from.flag == NODE_ATK ? "<a>" : "<d>";
   std::string tag1 = m.to.flag == NODE_ATK ? "<a>" : "<d>";
 
   std::string alabel
-    = m.to.flag != NODE_DEF ? "" : " " + std::to_string(m.to.act);
+    = m.to.flag != NODE_DEF ? "" : " " + std::to_string(m.act) + "=";
 
   return
-    "[" + tag0 + to_string(m.from) + "]"
-    + (alabel + (m.weak ? " => " : " -> "))
+    "[" + tag0 + to_string(m.from) + "] "
+    + alabel + "=" + (m.action_label + (m.weak ? " --> " : " -> "))
     + "[" + tag1 + to_string(m.to) + "]";
 }
 
-bool equals(const move &m0, const move &m1, bool weak_transition = false)
+bool equals(const cs_game_move &m0, const cs_game_move &m1, bool weak_transition = false)
 {
   return m0.act == m1.act && (!weak_transition && !(m0.weak || m1.weak));
 }
 
-bool operator<(const move &m0, const move &m1)
+bool operator<(const cs_game_move &m0, const cs_game_move &m1)
 {
   return m0.from != m1.from ? m0.from < m1.from : m0.to < m1.to;
 }
@@ -331,36 +331,35 @@ bool destructive_compare(LTS_TYPE& l1,
           for (transition t : l1.get_transitions())
           {
             std::cout
-              << "[p" << DEBUG_NOTE << ": " << t.from() << "]"
+              << "[<p>p" << DEBUG_NOTE << ": " << t.from() << "]"
               << " " << (t.label()) << "="
               // << (l1.is_tau(t.label()) ? "\u03c4" : std::to_string(l1.action_label(t.label())))
               << (l1.action_label(t.label()))
               << " ->"
-              << " [p" << DEBUG_NOTE << ": " << t.to() << "]\n";
+              << " [<p>p" << DEBUG_NOTE << ": " << t.to() << "]\";\n";
           }
 
           std::cout << "# TEST: l2.get_transitions():\n";
           for (const transition t : l2.get_transitions())
           {
             std::cout
-              << "[q" << DEBUG_NOTE << ": " << t.from() << "]"
+              << "[<q>q" << DEBUG_NOTE << ": " << t.from() << "]"
               << " " << (t.label()) << "="
               // << (l2.is_tau(t.label()) ? "\u03c4" : std::to_string(l2.action_label(t.label())))
               << (l2.action_label(t.label()))
               << " ->"
-              << " [q" << DEBUG_NOTE << ": " << t.to() << "]\n";
+              << " [<q>q" << DEBUG_NOTE << ": " << t.to() << "]\";\n";
           }
         }
       }
 
-      std::cout << "# Attacker nodes (p,q)a in Ga ... as S1 x S2 aka all possible pairs between them\n";
-      std::cout << "# Prepare defender nodes 1: all possible nodes, and how they are reached.\n";
-
       std::set<cs_game_node> attacker_nodes;  // (flag=NODE_ATK, placeholder, node::int, node::int)
       std::set<cs_game_node> defender_nodes;  // (flag, act::int, (node:int, node::int))
 
-      // std::vector<move> moves;  // moves (node,node)
-      std::set<move> moves;  // moves (node,node)
+      // std::vector<cs_game_move> moves;  // moves (node,node)
+      std::set<cs_game_move> moves;  // moves (node,node)
+      std::string move_label; // label as string representation.
+      std::ostringstream stream; // bypassing behavior (workaround for DEBUG)
 
       /* Define game nodes here. */
 
@@ -372,6 +371,20 @@ bool destructive_compare(LTS_TYPE& l1,
         t2_tran_from_node, t2_tran_into_node,
         t1_tran_from_node, t1_tran_into_node;
 
+      std::cout
+        << "// Restructure given LTS data structures, "
+        << " get meta and chain weak-transitions\n"
+        << "var show_lts = \""
+        << "\\n# zoom: 1.0"
+        << "\\n# gutter: 200.0"
+        << "\\n# fontSize: 10"
+        << "\\n# arrowSize: 0.2"
+        << "\\n# lineWidth: 1.0"
+        << "\\n# stroke: #000"
+        << "\\n# .p: fill=#D9D64F circle"
+        << "\\n# .q: fill=#ACA8F0 circle\\n\";\n\n";
+
+      std::cout << "var show_lts2_strong = \"\";\n";
       for (const transition t2 : l2.get_transitions())
       {
         t2_tran_from_node[t2.from()].push_back(t2);  // outgoing
@@ -384,15 +397,17 @@ bool destructive_compare(LTS_TYPE& l1,
         }
 
         // DEBUG
-          std::cout << "[q" << t2.from() << "]"
+          std::cout << "show_lts2_strong += \"\\n[<q>q" << t2.from() << "]"
             << " " << (l2.action_label(t2.label()))
             << " ->"
-            << " [q" << t2.to() << "]\n";
+            << " [<q>q" << t2.to() << "]\";\n";
       }
+      std::cout << "show_lts2_strong += \"\\n\";\n";
 
       /* Add weak transititions. */
       // NOP
 
+      std::cout << "var show_lts1_strong = \"\";\n";
       /* Create Attacker nodes (P,Q),
        * .. similarity game defender nodes (A1,P,Q) -> (P,Q)
        * .. and answering swapped similarity challanges (B,Q,P) => (Q,P)
@@ -405,24 +420,25 @@ bool destructive_compare(LTS_TYPE& l1,
         a = t1.label();
         p0 = t1.from();
         p1 = t1.to();
-
-        // bool a_is_tau = l1.is_tau(a);
-
-        // for reusing.
-        t1_tran_from_node[p0].push_back(t1);  // outgoing
-        t1_tran_into_node[p1].push_back(t1);  // incoming
+        bool a_is_tau = l1.is_tau(a);
 
         // DEBUG
-          std::cout
-            << "[p" << t1.from() << "]"
+          std::cout << "show_lts1_strong += \"\\n[<p>p" << t1.from() << "]"
             << " " << (l1.action_label(t1.label()))
             << " ->"
-            << " [p" << t1.to() << "]\n";
+            << " [<p>p" << t1.to() << "]\";\n";
+
+        /* only for all a in Act, which excludes tau-Actions.*/
+        if (a_is_tau) continue;  // SKIP
+
+        stream << (l1.action_label(a));
+        move_label = stream.str();
+        stream.str("");
+        stream.clear();
 
         /* Translate transition (p0) a -> (p1) to game nodes and moves:
          * (p0,q) a -> (a,p1,q) for all q in t2.num_states()
          * Create also (p0,q) -> (cpl, p0, q) */
-
         for (size_t q = 0; q < l2.num_states(); q++)
         {
           /* Challange: (Weak) Simulation Game. */
@@ -434,14 +450,14 @@ bool destructive_compare(LTS_TYPE& l1,
 
           /* p0 -> p1 */
           // moves.push_back({node_atk, node_sim, a, false});
-          moves.insert({node_atk, node_sim, a, false});
+          moves.insert({node_atk, node_sim, a, move_label});
 
           /* Answer to swapped challange.
            * (b,q,p0) -> (q,p1), if p0 b=> p1. */
           for (transition bqq1 : t2_tran_into_node[q])
           {
             size_t b = bqq1.label();
-            bool b_is_tau = l2.is_tau(b);
+            // bool b_is_tau = l2.is_tau(b);
             // if (b_is_tau || l2.action_label(b) == l1.action_label(a))
             if (l2.action_label(b) == l1.action_label(a))
             {
@@ -450,17 +466,18 @@ bool destructive_compare(LTS_TYPE& l1,
                   {NODE_DEF, b, q, p0, true},
                   {NODE_ATK, 0, q, p1, true},
                   a,
-                  false});  // one weak step is no weak transition.
+                  move_label});  // one weak step is no weak transition.
             }
           }
         }
       }
+      std::cout << "show_lts1_strong += \"\\n\";\n";
 
       /* Create (swapped) Attacker nodes (Q,P),
        * .. (swapped) similarity game defender nodes (B,Q,P) -> (Q,P)
        * .. and answering similarity challanges (A,P,Q) => (P,Q)
        */
-      for (transition t2 : l2.get_transitions())
+      for (const transition t2 : l2.get_transitions())
       {
         size_t b, q0, q1;
         // ? act_label = t1.action_label(act);
@@ -468,8 +485,16 @@ bool destructive_compare(LTS_TYPE& l1,
         b = t2.label();
         q0 = t2.from();
         q1 = t2.to();
+        bool b_is_tau = l2.is_tau(b);
 
-        // bool b_is_tau = l2.is_tau(b);
+        /* only for all a in Act, which excludes tau-Actions.*/
+        if (b_is_tau) continue;  // SKIP
+
+        stream << l2.action_label(b);
+        move_label = stream.str();
+        stream.str("");
+        stream.clear();
+
 
         /* Translate transition (p0) a -> (p1) to game nodes and moves:
          * (p0,q) a -> (a,p1,q) for all q in t2.num_states()
@@ -487,26 +512,28 @@ bool destructive_compare(LTS_TYPE& l1,
 
           /* q0 -> q1 (swapped) .*/
           // moves.push_back({node_atk, node_sim, b, false});
-          moves.insert({node_atk, node_sim, b, false});
+          moves.insert({node_atk, node_sim, b, move_label});
 
           /* Answer to challenge.
            * (a,p,q0) -> (p,q1), if q0 a=> q1. */
           for (transition bpp1 : t1_tran_into_node[p])
           {
             size_t a = bpp1.label();
-            bool a_is_tau = false && l2.is_tau(b);
-            if (a_is_tau || l2.action_label(b) == l1.action_label(a))
+            // bool a_is_tau = l2.is_tau(b);
+            if (l2.action_label(b) == l1.action_label(a))
             {
               // moves.push_back({
               moves.insert({
                   {NODE_DEF, a, p, q0, false},
                   {NODE_ATK, 0, p, q1, false},
                   b,
-                  false});  // one weak step is no weak transition.
+                  move_label});  // one weak step is no weak transition.
             }
           }
         }
       }
+
+      move_label = "";
 
       /* Add all Coupling challanges and their answers. */
       for (size_t p = 0; p < l1.num_states(); p++)
@@ -527,20 +554,20 @@ bool destructive_compare(LTS_TYPE& l1,
           // moves.push_back({node_cpl, node_swp, 0, false});
 
           // bisim.
-          moves.insert({node_atk, node_swp, 0, false});
-          moves.insert({node_swp, node_atk, 0, false});
+          moves.insert({node_atk, node_swp, 0, ""});
+          moves.insert({node_swp, node_atk, 0, ""});
         }
       }
 
       // DEBUG
-      std::cout << "# Now, a Game with "
+      std::cout << "// Now, a Game with "
         << attacker_nodes.size() << " Attacker nodes, "
         << defender_nodes.size() << " Defender nodes and "
         << moves.size() << " (unready) moves exists\n";
 
-      std::cout << "# Get all the predecessors.\n";
-      std::cout << "# Count their successors\n";
-      std::cout << "# Mark everyone won by defender (d)\n";
+      std::cout << "// Get all the predecessors.\n";
+      std::cout << "// Count their successors\n";
+      std::cout << "// Mark everyone won by defender (d)\n";
 
       std::map<cs_game_node,std::set<cs_game_node>> predecessors;
       std::map<cs_game_node,int> successor_count;
@@ -548,17 +575,18 @@ bool destructive_compare(LTS_TYPE& l1,
       const int WON_DEFENDER = 0, WON_ATTACKER = 1;
 
       std::cout // XXX REMOVE_ME
-        << "\n#title: ltscompare_coupledsim_csgame"
-        << "\n#fontSize: 10"
-        << "\n#arrowSize: 0.2"
-        << "\n#lineWidth: 1.0"
-        << "\n#zoom: 1.0"
-        << "\n#edges: rounded"
-        << "\n#.a: fill=#f77"
-        << "\n#.d: fill=#7f7 visual=roundrect"
-        << "\n#.l: visual=none"
-        << "\n#ranker: longest-path"
-        << "\n";
+        << "var show_game "
+        << "= \"\\n#title: ltscompare_coupledsim_csgame"
+        << "\\n#fontSize: 10"
+        << "\\n#arrowSize: 0.2"
+        << "\\n#lineWidth: 1.0"
+        << "\\n#zoom: 1.0"
+        << "\\n#edges: rounded"
+        << "\\n#.a: fill=#f77"
+        << "\\n#.d: fill=#7f7 visual=roundrect"
+        << "\\n#.l: visual=none"
+        << "\\n#ranker: longest-path"
+        << "\\n#direction: right\\n\";\n";
 
       for (const auto &m : moves)
       {
@@ -577,15 +605,20 @@ bool destructive_compare(LTS_TYPE& l1,
         successor_count[pred] += 1;  // "append" successors.
 
         // DEBUG
-        std::cout << to_string(m) << "\n";
+        std::cout << "show_game += \"\\n" << to_string(m) << "\";\n";
       }
+      std::cout << "show_game += \"\\n\";\n";
 
-      std::cout << "\n# Run: Computing Winning Regions.\n";
+      std::cout << "\n// Run: Computing Winning Regions.\n";
 
       std::stack<cs_game_node> todo;
       for (cs_game_node d : defender_nodes) todo.push(d); // XXX make me better
       // todo.assign(defender_nodes.begin(), defender_nodes.end());
 
+      std::cout << "// propagate_attacker_win for ...\n\n";
+      std::cout << "var show_game_lost = \"\";\n";
+
+      /* Calculate winning region. */
       while (!todo.empty())
       {
         /* Pop from queue. */
@@ -594,7 +627,7 @@ bool destructive_compare(LTS_TYPE& l1,
 
         if (successor_count[n] <= 0)
         {
-          std::cout << "// propagate_attacker_win(" << to_string(n) << ")\n";
+          std::cout << "show_game_lost += \"\\n[<l>" << to_string(n) << "]\";\n";
           if (nodes_won[n] == WON_DEFENDER)
           {
             nodes_won[n] = WON_ATTACKER;
@@ -614,15 +647,20 @@ bool destructive_compare(LTS_TYPE& l1,
           }
         }
       }
+      std::cout << "show_game_lost += \"\\n\";\n";
 
-      std::cout << "> R = {";
+      std::cout << "\n\n// R = {";
       char seperator[3] = {'\0', ' ', '\0'};
 
-      // Filter attacker nodes, which won the challange.
+      /* Filter R, where its elemens are coupled similar. */
       std::set<cs_game_node> cs_relation;
-
       for (const auto &pq : attacker_nodes)
       {
+        if (nodes_won.find(pq) == nodes_won.end())
+        {
+          std::cout << "I am requested, but never listed. Set to default\n";
+        }
+
         if (nodes_won[pq] == WON_DEFENDER)
         {
           cs_relation.insert(pq);
@@ -631,6 +669,35 @@ bool destructive_compare(LTS_TYPE& l1,
         }
       }
       std::cout << "}\n";
+
+      std::string fst, snd;
+      if (true)  // DEBUG
+      {
+        std::cout << "\n\n// Show linking.\n";
+        std::cout << "var show_sim_related = \"\";\n";
+        for (const auto &n : cs_relation)
+        {
+          fst = !n.swapped ? "<p>p" : "<q>q";
+          snd = !n.swapped ? "<q>q" : "<p>p";
+          std::cout << "show_sim_related += \"\\n[" << fst << n.p << "] <--> [" << snd << n.q << "]\";\n";
+        }
+      }
+      std::cout << "show_sim_related += \"\\n\";\n";
+
+      // DEBUG
+      std::cout << "\n"
+        << "\nnomnoml.draw(document.getElementById(\"show-lts-input\"),"
+        << " show_lts + show_lts1_strong + show_lts2_strong);"
+
+        << "\n// nomnoml.draw(document.getElementById(\"show-lts-weak\"),"
+        << " show_lts + show_lts1_weak + show_lts2_weak);"
+
+        << "\nnomnoml.draw(document.getElementById(\"show-lts-simulation\"),"
+        << " show_lts + show_lts1_strong + show_lts2_strong + show_sim_related);"
+
+        << "\nnomnoml.draw(document.getElementById(\"show-game-moves\"),"
+        << " show_game_lost + show_game);"
+        << "\n// ";
 
       /* Return true iff root nodes are in R / won by defender. */
       cs_game_node roots[]
