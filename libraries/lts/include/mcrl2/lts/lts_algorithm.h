@@ -356,7 +356,6 @@ bool destructive_compare(LTS_TYPE& l1,
       std::set<cs_game_node> attacker_nodes;  // (flag=NODE_ATK, placeholder, node::int, node::int)
       std::set<cs_game_node> defender_nodes;  // (flag, act::int, (node:int, node::int))
 
-      // std::vector<cs_game_move> moves;  // moves (node,node)
       std::set<cs_game_move> moves;  // moves (node,node)
       std::string move_label; // label as string representation.
       std::ostringstream stream; // bypassing behavior (workaround for DEBUG)
@@ -364,7 +363,9 @@ bool destructive_compare(LTS_TYPE& l1,
       /* Define game nodes here. */
 
       /* Get Weak transitions. */
-      // NOP
+      std::stack<transition> todo_weak;
+      std::set<transition> l1_weak_transitions;
+      std::set<transition> l2_weak_transitions; // do I need to save them?
 
       /* filter transitions of t2. */
       std::map<size_t,std::vector<transition>>
@@ -384,52 +385,235 @@ bool destructive_compare(LTS_TYPE& l1,
         << "\\n# .p: fill=#D9D64F circle"
         << "\\n# .q: fill=#ACA8F0 circle\\n\";\n\n";
 
-      std::cout << "var show_lts2_strong = \"\";\n";
-      for (const transition t2 : l2.get_transitions())
-      {
-        t2_tran_from_node[t2.from()].push_back(t2);  // outgoing
-        t2_tran_into_node[t2.to()].push_back(t2);  // incoming
-
-        /* If tau, then add to weak transitions. */
-        if (l2.is_tau(t2.label()))
+      { // restructure l1 => get meta data and chain weak transitions.
+        std::cout << "var show_lts1_strong = \"\";\n";
+        for (const transition t1 : l1.get_transitions())
         {
-          // NOP
-        }
+          t1_tran_from_node[t1.from()].push_back(t1);  // outgoing
+          t1_tran_into_node[t1.to()].push_back(t1);  // incoming
 
-        // DEBUG
+          /* Every transition is a weak transition, append to todo. */
+          todo_weak.push(transition(t1.from(), t1.label(), t1.to()));
+          l1_weak_transitions.insert(transition(t1.from(), t1.label(), t1.to()));
+
+          // DEBUG
+          std::cout << "show_lts1_strong += \"\\n[<p>p" << t1.from() << "]"
+            << " " << (l1.action_label(t1.label()))
+            << " ->"
+            << " [<p>p" << t1.to() << "]\";\n";
+        }
+        std::cout << "show_lts2_strong += \"\\n\";\n";
+
+        /* Add weak transititions. */
+        // on branching copy path and add all branches fins as fins.
+        while (!todo_weak.empty())
+        {
+          // pop and keep just start and extension.
+          // finish if next is second not tau.
+          transition weak = todo_weak.top();
+          todo_weak.pop();
+          size_t f = weak.from();
+          size_t l = weak.label();
+          size_t t = weak.to();
+          bool already_good = !l1.is_tau(l);  // path already has a good action
+
+          /* Check for branching.
+           * Exmaple [1] -> [2] -> [3] a -> [4] -> [5]
+           * [4] -> [6].-> [7]
+           * [1] b -> [8]
+           * (no label means tau.)
+           * [1] b=> [8]
+           * [1] a=> [4], [1] a=> [5], [1] a=> [6], [1] a=> [7]
+           * [2] a=> [4], [2] a=> [5], [2] a=> [6], [2] a=> [7]
+           * [3] a=> [4], [3] a=> [5], [3] a=> [6], [3] a=> [7]
+           */
+          std::vector<transition> next = t1_tran_from_node[t];
+          size_t len = next.size();
+
+          if (already_good)  // (actually already) done
+          {
+            /* The current todo weak transition is already valid.*/
+            l1_weak_transitions.insert(weak);
+            t1_tran_into_node[t].push_back(weak);
+            t1_tran_from_node[f].push_back(weak);
+          }
+
+          if (len < 1)  // no further steps.
+          {
+            continue;
+          }
+          else  // just extend simply.
+          {
+            for (transition ntrans : next)
+            {
+              size_t next_label = ntrans.label();
+              bool next_tau = l1.is_tau(next_label);
+
+              /* If tau: extend new todo with extension.
+               * If all before only tau: extend new todo with extension.
+               */
+              if (next_tau || !already_good)
+              {
+                /* Maybe use new label: If now good.*/
+                transition new_extended_weak
+                  = transition(f, !already_good ? next_label : l, ntrans.to());
+
+                // re-add new branches.
+                todo_weak.push(new_extended_weak);
+              }
+
+            }
+          }
+          // cuurent weak transition is done now.
+        }  // done l1 tau forest (all tau pathes).
+
+        if (true)  // DEBUG
+        {
+          std::cout << "\n"
+            << "// Finished weak transition building for l2.\n"
+            << "// Read " << l1.get_transitions().size()
+            << " transitions to "
+            << l1_weak_transitions.size()
+            << " (extended with weak transitions)...\n";
+          std::cout << "var show_lts1_weak = \"\";\n";
+
+          for (const auto &t1 : l1_weak_transitions)
+          {
+            std::cout
+              << "show_lts1_weak += \"\\n[<p>p" << t1.from() << "] "
+              << l2.action_label(t1.label()) << " --> "
+              << "[<p>p" << t1.to() << "]\";\n";
+          }
+          std::cout << "show_lts1_weak += \"\\n\";\n";
+          std::cout << "\n";
+        }
+      }
+
+      { // ANALOG for l2
+        std::cout << "var show_lts2_strong = \"\";\n";
+        for (const transition t2 : l2.get_transitions())
+        {
+          t2_tran_from_node[t2.from()].push_back(t2);  // outgoing
+          t2_tran_into_node[t2.to()].push_back(t2);  // incoming
+
+          /* Every transition is a weak transition, append to todo. */
+          todo_weak.push(transition(t2.from(), t2.label(), t2.to()));
+          l2_weak_transitions.insert(transition(t2.from(), t2.label(), t2.to()));
+
+          // DEBUG
           std::cout << "show_lts2_strong += \"\\n[<q>q" << t2.from() << "]"
             << " " << (l2.action_label(t2.label()))
             << " ->"
             << " [<q>q" << t2.to() << "]\";\n";
+        }
+        std::cout << "show_lts2_strong += \"\\n\";\n";
+
+        /* Add weak transititions. */
+        // on branching copy path and add all branches fins as fins.
+        while (!todo_weak.empty())
+        {
+          // pop and keep just start and extension.
+          // finish if next is second not tau.
+          transition weak = todo_weak.top();
+          todo_weak.pop();
+          size_t f = weak.from();
+          size_t l = weak.label();
+          size_t t = weak.to();
+          bool already_good = !l2.is_tau(l);  // path already has a good action
+
+          /* Check for branching.
+           * Exmaple [1] -> [2] -> [3] a -> [4] -> [5]
+           * [4] -> [6].-> [7]
+           * [1] b -> [8]
+           * (no label means tau.)
+           * [1] b=> [8]
+           * [1] a=> [4], [1] a=> [5], [1] a=> [6], [1] a=> [7]
+           * [2] a=> [4], [2] a=> [5], [2] a=> [6], [2] a=> [7]
+           * [3] a=> [4], [3] a=> [5], [3] a=> [6], [3] a=> [7]
+           */
+          std::vector<transition> next = t2_tran_from_node[t];
+          size_t len = next.size();
+
+          if (already_good)  // (actually already) done
+          {
+            /* The current todo weak transition is already valid.*/
+            l2_weak_transitions.insert(weak);
+            t2_tran_into_node[t].push_back(weak);
+            t2_tran_from_node[f].push_back(weak);
+          }
+
+          if (len < 1)  // no further steps.
+          {
+            continue;
+          }
+          else  // just extend simply.
+          {
+            for (transition ntrans : next)
+            {
+              size_t next_label = ntrans.label();
+              bool next_tau = l2.is_tau(next_label);
+
+              /* If tau: extend new todo with extension.
+               * If all before only tau: extend new todo with extension.
+               */
+              if (next_tau || !already_good)
+              {
+                /* Maybe use new label: If now good.*/
+                transition new_extended_weak
+                  = transition(f, !already_good ? next_label : l, ntrans.to());
+
+                // re-add new branches.
+                todo_weak.push(new_extended_weak);
+              }
+
+            }
+          }
+          // cuurent weak transition is done now.
+        }  // done l2 tau forest (all tau pathes).
+
+        if (true)  // DEBUG
+        {
+          std::cout << "\n"
+            << "// Finished weak transition building for l2.\n"
+            << "// Read " << l2.get_transitions().size()
+            << " transitions to "
+            << l2_weak_transitions.size()
+            << " (extended with weak transitions)...\n";
+          std::cout << "var show_lts2_weak = \"\";\n";
+
+          for (const auto &t2 : l2_weak_transitions)
+          {
+            std::cout
+              << "show_lts2_weak += \"\\n[<q>q" << t2.from() << "] "
+              << l2.action_label(t2.label()) << " --> "
+              << "[<q>q" << t2.to() << "]\";\n";
+          }
+          std::cout << "show_lts2_weak += \"\\n\";\n";
+          std::cout << "\n";
+        }
       }
-      std::cout << "show_lts2_strong += \"\\n\";\n";
 
-      /* Add weak transititions. */
-      // NOP
+      std::cout << "// Attacker nodes (p,q)a in Ga ... as S1 x S2 aka all possible pairs between them\n";
+      std::cout << "// Prepare defender nodes 1: all possible nodes, and how they are reached.\n";
 
-      std::cout << "var show_lts1_strong = \"\";\n";
+      // TODO(nox) 2020-02-08: How do I call them on the answering stuff?
+      // They are not the same like the normal transition labels. :<
+
       /* Create Attacker nodes (P,Q),
        * .. similarity game defender nodes (A1,P,Q) -> (P,Q)
        * .. and answering swapped similarity challanges (B,Q,P) => (Q,P)
        */
-      for (transition t1 : l1.get_transitions())
+      for (const transition t1 : l1_weak_transitions)
       {
         size_t a, p0, p1;
-        // ? act_label = t1.action_label(act);
 
         a = t1.label();
         p0 = t1.from();
         p1 = t1.to();
         bool a_is_tau = l1.is_tau(a);
 
-        // DEBUG
-          std::cout << "show_lts1_strong += \"\\n[<p>p" << t1.from() << "]"
-            << " " << (l1.action_label(t1.label()))
-            << " ->"
-            << " [<p>p" << t1.to() << "]\";\n";
-
         /* only for all a in Act, which excludes tau-Actions.*/
-        if (a_is_tau) continue;  // SKIP
+        // ACT includes tau
 
         stream << (l1.action_label(a));
         move_label = stream.str();
@@ -449,19 +633,24 @@ bool destructive_compare(LTS_TYPE& l1,
           defender_nodes.insert(node_sim);
 
           /* p0 -> p1 */
-          // moves.push_back({node_atk, node_sim, a, false});
           moves.insert({node_atk, node_sim, a, move_label});
+
+          /* If the demonstrator does tau, the simulator can optionally stay.
+           * == (tau, p1, q) -> (p1,q).*/
+          if (a_is_tau)
+          {
+            cs_game_node node_stay = {NODE_ATK, 0, p1, q, false};
+            attacker_nodes.insert(node_stay);
+            moves.insert({node_sim, node_stay, 0, ""});
+          }
 
           /* Answer to swapped challange.
            * (b,q,p0) -> (q,p1), if p0 b=> p1. */
           for (transition bqq1 : t2_tran_into_node[q])
           {
             size_t b = bqq1.label();
-            // bool b_is_tau = l2.is_tau(b);
-            // if (b_is_tau || l2.action_label(b) == l1.action_label(a))
             if (l2.action_label(b) == l1.action_label(a))
             {
-              // moves.push_back({
               moves.insert({
                   {NODE_DEF, b, q, p0, true},
                   {NODE_ATK, 0, q, p1, true},
@@ -471,16 +660,14 @@ bool destructive_compare(LTS_TYPE& l1,
           }
         }
       }
-      std::cout << "show_lts1_strong += \"\\n\";\n";
 
       /* Create (swapped) Attacker nodes (Q,P),
        * .. (swapped) similarity game defender nodes (B,Q,P) -> (Q,P)
        * .. and answering similarity challanges (A,P,Q) => (P,Q)
        */
-      for (const transition t2 : l2.get_transitions())
+      for (const transition t2 : l2_weak_transitions)
       {
         size_t b, q0, q1;
-        // ? act_label = t1.action_label(act);
 
         b = t2.label();
         q0 = t2.from();
@@ -488,7 +675,7 @@ bool destructive_compare(LTS_TYPE& l1,
         bool b_is_tau = l2.is_tau(b);
 
         /* only for all a in Act, which excludes tau-Actions.*/
-        if (b_is_tau) continue;  // SKIP
+        // ACt includes tau
 
         stream << l2.action_label(b);
         move_label = stream.str();
@@ -511,18 +698,24 @@ bool destructive_compare(LTS_TYPE& l1,
           defender_nodes.insert(node_sim);
 
           /* q0 -> q1 (swapped) .*/
-          // moves.push_back({node_atk, node_sim, b, false});
           moves.insert({node_atk, node_sim, b, move_label});
+
+          /* If the demonstrator does tau, the simulator can optionally stay.
+           * == (tau, p1, q) -> (p1,q).*/
+          if (b_is_tau)
+          {
+            cs_game_node node_stay = {NODE_ATK, 0, q1, p, true};
+            attacker_nodes.insert(node_stay);
+            moves.insert({node_sim, node_stay, 0, ""});
+          }
 
           /* Answer to challenge.
            * (a,p,q0) -> (p,q1), if q0 a=> q1. */
           for (transition bpp1 : t1_tran_into_node[p])
           {
             size_t a = bpp1.label();
-            // bool a_is_tau = l2.is_tau(b);
             if (l2.action_label(b) == l1.action_label(a))
             {
-              // moves.push_back({
               moves.insert({
                   {NODE_DEF, a, p, q0, false},
                   {NODE_ATK, 0, p, q1, false},
@@ -549,9 +742,7 @@ bool destructive_compare(LTS_TYPE& l1,
           attacker_nodes.insert(node_swp);
 
           // defender_nodes.insert(node_cpl);
-
-          // moves.push_back({node_atk, node_cpl, 0, false});
-          // moves.push_back({node_cpl, node_swp, 0, false});
+          // TODO
 
           // bisim.
           moves.insert({node_atk, node_swp, 0, ""});
@@ -586,6 +777,7 @@ bool destructive_compare(LTS_TYPE& l1,
         << "\\n#.d: fill=#7f7 visual=roundrect"
         << "\\n#.l: visual=none"
         << "\\n#ranker: longest-path"
+        << "\\n#gutter: 100"
         << "\\n#direction: right\\n\";\n";
 
       for (const auto &m : moves)
@@ -649,7 +841,7 @@ bool destructive_compare(LTS_TYPE& l1,
       }
       std::cout << "show_game_lost += \"\\n\";\n";
 
-      std::cout << "\n\n// R = {";
+      std::cout << "\n\nvar R = \"{";
       char seperator[3] = {'\0', ' ', '\0'};
 
       /* Filter R, where its elemens are coupled similar. */
@@ -668,7 +860,7 @@ bool destructive_compare(LTS_TYPE& l1,
           seperator[0] = ',';
         }
       }
-      std::cout << "}\n";
+      std::cout << "}\";\n";
 
       std::string fst, snd;
       if (true)  // DEBUG
@@ -689,7 +881,7 @@ bool destructive_compare(LTS_TYPE& l1,
         << "\nnomnoml.draw(document.getElementById(\"show-lts-input\"),"
         << " show_lts + show_lts1_strong + show_lts2_strong);"
 
-        << "\n// nomnoml.draw(document.getElementById(\"show-lts-weak\"),"
+        << "\nnomnoml.draw(document.getElementById(\"show-lts-weak\"),"
         << " show_lts + show_lts1_weak + show_lts2_weak);"
 
         << "\nnomnoml.draw(document.getElementById(\"show-lts-simulation\"),"
@@ -697,15 +889,24 @@ bool destructive_compare(LTS_TYPE& l1,
 
         << "\nnomnoml.draw(document.getElementById(\"show-game-moves\"),"
         << " show_game_lost + show_game);"
-        << "\n// ";
+        << "\n";
 
       /* Return true iff root nodes are in R / won by defender. */
       cs_game_node roots[]
         = {{NODE_ATK, 0, 0, 0, false}, {NODE_ATK, 0, 0, 0, true}};
 
-      return
-        nodes_won[roots[0]] == WON_DEFENDER &&
-        nodes_won[roots[1]] == WON_DEFENDER;
+      bool similar
+        = nodes_won[roots[0]] == WON_DEFENDER
+        && nodes_won[roots[1]] == WON_DEFENDER;
+
+      std::cout
+      << "document.getElementById(\"lts-relation\").innerHTML "
+      << "= \"R = \" + R + \"</br>"
+      << "&rArr; <b>" << (similar ? "true" : "false") << "</b>\";";
+
+      std::cout << "\n\n// ";
+
+      return similar;
     }
     default:
     throw mcrl2::runtime_error("Comparison for this equivalence is not available");
