@@ -13,11 +13,10 @@
 #ifndef _LIBLTS_COUPLED_SIM_H
 #define _LIBLTS_COUPLED_SIM_H
 
-#include <algorithm>
+#include <iostream>
 #include <cstdio>
 #include <cstdlib>
-// #include <functional>
-#include <iostream>
+#include <algorithm>
 #include <map>
 #include <stack>
 #include <string>
@@ -181,9 +180,9 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
   // std::set<transition> l2_weak_transitions; // do I need to save them?
 
   /* filter transitions of t2. */
-  std::map<size_t,std::vector<transition>>
-    t2_tran_from_node, t2_tran_into_node,
-    t1_tran_from_node, t1_tran_into_node;
+  std::map<size_t,std::map<transition,bool>>  // if strong transition on true
+    l2_tran_from_node, l2_tran_into_node,
+    l1_tran_from_node, l1_tran_into_node;
 
   std::cout
     << "// Restructure given LTS data structures, "
@@ -203,8 +202,8 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
     std::cout << "var show_lts1_strong = \"\";\n";
     for (const transition t1 : l1.get_transitions())
     {
-      t1_tran_from_node[t1.from()].push_back(t1);  // outgoing
-      t1_tran_into_node[t1.to()].push_back(t1);  // incoming
+      l1_tran_from_node[t1.from()][t1] = true;  // outgoing
+      l1_tran_into_node[t1.to()][t1] = true;  // incoming
 
       /* Every transition is a weak transition, append to todo. */
       todo_weak.push(transition(t1.from(), t1.label(), t1.to()));
@@ -236,26 +235,17 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
       size_t t = weak.to();
       bool already_good = !l1.is_tau(l);  // path already has a good action
 
-      /* Check for branching.
-       * Exmaple [1] -> [2] -> [3] a -> [4] -> [5]
-       * [4] -> [6].-> [7]
-       * [1] b -> [8]
-       * (no label means tau.)
-       * [1] b=> [8]
-       * [1] a=> [4], [1] a=> [5], [1] a=> [6], [1] a=> [7]
-       * [2] a=> [4], [2] a=> [5], [2] a=> [6], [2] a=> [7]
-       * [3] a=> [4], [3] a=> [5], [3] a=> [6], [3] a=> [7]
-       */
-      std::vector<transition> next = t1_tran_from_node[t];
+      std::map<transition,bool> next = l1_tran_from_node[t];
       size_t len = next.size();
 
       if (true)  // also just tau chains may be later used
       // if (already_good)  // (actually already) done
       {
         /* The current todo weak transition is already valid.*/
+        // if it was strong before, it stays strong, else added as weak.
         l1_weak_transitions.insert(weak);
-        t1_tran_into_node[t].push_back(weak);
-        t1_tran_from_node[f].push_back(weak);
+        l1_tran_into_node[t][weak] |= false;
+        l1_tran_from_node[f][weak] |= false;
       }
 
       if (len < 1)  // no further steps.
@@ -264,9 +254,9 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
       }
       else  // just extend simply.
       {
-        for (transition ntrans : next)
+        for (const auto &ntrans : next)
         {
-          size_t next_label = ntrans.label();
+          size_t next_label = ntrans.first.label();
           bool next_tau = l1.is_tau(next_label);
 
           /* If tau: extend new todo with extension.
@@ -276,7 +266,7 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
           {
             /* Maybe use new label: If now good.*/
             transition new_extended_weak
-              = transition(f, !already_good ? next_label : l, ntrans.to());
+              = transition(f, !already_good ? next_label : l, ntrans.first.to());
 
             // re-add new branches.
             todo_weak.push(new_extended_weak);
@@ -292,8 +282,8 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
     std::cout << "var show_lts2_strong = \"\";\n";
     for (const transition t2 : l2.get_transitions())
     {
-      t2_tran_from_node[t2.from()].push_back(t2);  // outgoing
-      t2_tran_into_node[t2.to()].push_back(t2);  // incoming
+      l2_tran_from_node[t2.from()][t2] = true;  // outgoing
+      l2_tran_into_node[t2.to()][t2] = true;  // incoming
 
       /* Every transition is a weak transition, append to todo. */
       todo_weak.push(transition(t2.from(), t2.label(), t2.to()));
@@ -324,26 +314,17 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
       size_t t = weak.to();
       bool already_good = !l2.is_tau(l);  // path already has a good action
 
-      /* Check for branching.
-       * Exmaple [1] -> [2] -> [3] a -> [4] -> [5]
-       * [4] -> [6].-> [7]
-       * [1] b -> [8]
-       * (no label means tau.)
-       * [1] b=> [8]
-       * [1] a=> [4], [1] a=> [5], [1] a=> [6], [1] a=> [7]
-       * [2] a=> [4], [2] a=> [5], [2] a=> [6], [2] a=> [7]
-       * [3] a=> [4], [3] a=> [5], [3] a=> [6], [3] a=> [7]
-       */
-      std::vector<transition> next = t2_tran_from_node[t];
+      std::map<transition,bool> next = l2_tran_from_node[t];
       size_t len = next.size();
 
       if (true)  // all, also just tau chains may be requeseted later
       // if (already_good)  // (actually already) done
       {
         /* The current todo weak transition is already valid.*/
+        // if it was strong before, it stays strong, else added as weak.
         l2_weak_transitions.insert(weak);
-        t2_tran_into_node[t].push_back(weak);
-        t2_tran_from_node[f].push_back(weak);
+        l2_tran_into_node[t][weak] |= false;
+        l2_tran_from_node[f][weak] |= false;
       }
 
       if (len < 1)  // no further steps.
@@ -352,9 +333,9 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
       }
       else  // just extend simply.
       {
-        for (transition ntrans : next)
+        for (const auto &ntrans : next)
         {
-          size_t next_label = ntrans.label();
+          size_t next_label = ntrans.first.label();
           bool next_tau = l2.is_tau(next_label);
 
           /* If tau: extend new todo with extension.
@@ -364,7 +345,7 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
           {
             /* Maybe use new label: If now good.*/
             transition new_extended_weak
-              = transition(f, !already_good ? next_label : l, ntrans.to());
+              = transition(f, !already_good ? next_label : l, ntrans.first.to());
 
             // re-add new branches.
             todo_weak.push(new_extended_weak);
@@ -379,19 +360,20 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
   std::cout << "\n// show all out, including weak;\nvar show_lts_weak = \"\";\n";
   for (size_t p = 0; p < l1.num_states(); p++)
   {
-      for (const transition out : t1_tran_from_node[p])
+      for (const auto &out : l1_tran_from_node[p])
       {
         if (std::find(
               l1.get_transitions().begin(),
-              l1.get_transitions().end(), out)
+              l1.get_transitions().end(), out.first)
             != l1.get_transitions().end())
           continue; // strong, skip
 
         std::cout << "show_lts_weak += \"\\n"
-          << "[<p>p" << out.from() << "]"
+          << "[<p>p" << out.first.from() << "]"
           << " --> "
-          << " " << out.label() << ":" << l1.action_label(out.label()) << " "
-          << "[<p>p" << out.to() << "]"
+          << " " << out.first.label()
+          << ":" << l1.action_label(out.first.label()) << " "
+          << "[<p>p" << out.first.to() << "]"
           << "\";\n";
       }
   }
@@ -400,20 +382,21 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
   // creation)
   for (size_t q = 0; q < l2.num_states(); q++)
   {
-      for (const transition out : t2_tran_from_node[q])
+      for (const auto &out : l2_tran_from_node[q])
       {
         if (std::find(
               l2.get_transitions().begin(),
               l2.get_transitions().end(),
-              out)
+              out.first)
             != l2.get_transitions().end())
           continue; // strong, skip
 
         std::cout << " show_lts_weak += \"\\n"
-          << "[<q>q" << out.from() << "]"
-          << " " << out.label() << ":" << l2.action_label(out.label()) << " "
+          << "[<q>q" << out.first.from() << "]"
           << " --> "
-          << "[<q>q" << out.to() << "]"
+          << " " << out.first.label()
+          << ":" << l2.action_label(out.first.label()) << " "
+          << "[<q>q" << out.first.to() << "]"
           << "\";\n";
       }
   }
@@ -424,198 +407,166 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
   // TODO(nox) 2020-02-08: How do I call them on the answering stuff?
   // They are not the same like the normal transition labels. :<
 
-  /* Create Attacker nodes (P,Q),
-   * .. similarity game defender nodes (A1,P,Q) -> (P,Q)
-   * .. and answering swapped similarity challenges (B,Q,P) => (Q,P)
-   */
-  // for (const transition t1 : l1.get_transitions())
-  for (const transition t1 : l1_weak_transitions)
+  for (size_t p0 = 0; p0 < l1.num_states(); p0++)
   {
-    size_t a, p0, p1;
-
-    a = t1.label();
-    p0 = t1.from();
-    p1 = t1.to();
-    bool a_is_tau = l1.is_tau(a);
-
-    /* only for all a in Act, which excludes tau-Actions.*/
-    // ACT includes tau
-
-    stream << (l1.action_label(a));
-    move_label = stream.str();
-    stream.str("");
-    stream.clear();
-
-    /* Translate transition (p0) a -> (p1) to game nodes and moves:
-     * (p0,q) a -> (a,p1,q) for all q in t2.num_states()
-     * Create also (p0,q) -> (cpl, p0, q) */
-    for (size_t q = 0; q < l2.num_states(); q++)
+    for (size_t q0 = 0; q0 < l2.num_states(); q0++)
     {
-      /* Challenge: (Weak) Simulation Game. */
-      cs_game_node node_atk = {NODE_ATK, 0, p0, q, false}; // (p0,q) f.a q in L2
-      cs_game_node node_sim = {NODE_DEF, a, p1, q, false}; // (a,p1,q) f.a q in L2
+      cs_game_node p0q0 = {NODE_ATK, 0, p0, q0, false};  // atk (p0,q0)
+      cs_game_node cplp0q0 = {NODE_CPL, 0, p0, q0, false}; // (cpl,p0,q0)
 
-      attacker_nodes.insert(node_atk);
-      defender_nodes.insert(node_sim);
+      /* swapped. */
+      cs_game_node q0p0 = {NODE_ATK, 0, q0, p0, true};  // swapped (q0,p0)
+      cs_game_node cplq0p0 = {NODE_CPL, 0, q0, p0, true};  // swapped (cpl,q0,p0)
 
-      /* p0 -> p1 */
-      moves.insert({node_atk, node_sim, a, move_label});
+      attacker_nodes.insert(p0q0);
+      attacker_nodes.insert(q0p0);
+      defender_nodes.insert(cplp0q0);
+      defender_nodes.insert(cplq0p0);
 
-      if (a_is_tau)
+      moves.insert({p0q0, cplp0q0, 0, "cpl"});  // (p0,q0) -> (Cpl,p0,q0)
+      moves.insert({q0p0, cplq0p0, 0, "cpl"});  // (q0,p0) -> (Cpl,q0,p0)
+
+      /* bisim: coupling answer q'=q, p'=p*/
+      moves.insert({cplp0q0, q0p0, 0, "bisim"});
+      moves.insert({cplq0p0, p0q0, 0, "bisim"});
+
+      std::map<cs_game_move, bool> todo_if;
+
+      // TODO this includes also weak, as challenge giver invalid, solve!
+      /* CREATED:
+       * challenge: p0 a -> p1
+       * answers : p0 a => p1, if there's q0 a -> q1
+       * coupling : p0 => p1
+       */
+      for (const auto t1 : l1_tran_from_node[p0])
       {
-        /* If the demonstrator does tau, the simulator can optionally stay.
-         * == (p0,q) tau -> (tau,p1,q) -> (p1,q).*/
-        cs_game_node node_stay = {NODE_ATK, 0, p1, q, false};
-        attacker_nodes.insert(node_stay);
-        moves.insert({node_sim, node_stay, 0, ""});
-      }
+        size_t a = t1.first.label();
+        size_t p1 = t1.first.to();
+        bool atau = l1.is_tau(a);
+        bool strong = t1.second;  // transition was strong
 
-      /* And coupling.
-       * swp=(p0,q) -> cpl=(cpl, p0,q) -> atk=(q1,p0) */
-      cs_game_node node_cpl = {NODE_CPL, 0, p0, q, false};
-      defender_nodes.insert(node_cpl);
-      moves.insert({node_atk, node_cpl, 0, "cpl"});
+        stream << (l1.action_label(a));
+        move_label = stream.str();
+        stream.str("");
+        stream.clear();
 
-      /* Can be always added, bisim coupling answer.*/
-      cs_game_node node_bisim = {NODE_ATK, 0, q, p0, true};
-      attacker_nodes.insert(node_bisim);
-      moves.insert({node_cpl, node_bisim, 0, "bisim"});
+        // --
 
-      /* Answer to swapped challenge, or add answer to coupling challenge.*/
-      for (transition bqq1 : t2_tran_into_node[q])
-      {
-        size_t b = bqq1.label();
-        if (l2.action_label(b) == l1.action_label(a))
+        // TODO only strong
+        if (strong)
         {
-          moves.insert({
-              {NODE_DEF, b, q, p0, true},
-              {NODE_ATK, 0, q, p1, true},
-              a,
-              move_label});  // one weak step is no weak transition.
+          /* (p0,q0) -> (a,p1,q0),  if [p0] a -> [p1] */
+          cs_game_node ap1q0 = {NODE_DEF, a, p1, q0, false};
+          defender_nodes.insert(ap1q0);
+          moves.insert({p0q0, ap1q0, a, move_label});
+
+          if (atau)  // => answering q0 can also stay.
+          {
+            cs_game_node q0_stay = {NODE_ATK, 0, p1, q0, false};
+            attacker_nodes.insert(q0_stay);
+            moves.insert({ap1q0, q0_stay, 0, ""});
+          }
         }
 
-        /* If b is a tau, answer that as coupling challenge.
-         * swp=(p0,q) -> cpl=(cpl, p0,q) -> atk=(q1,p0) */
-        if (l2.is_tau(b) && DEBUG_COUPLED_SIM_ENABLE)
+        /* ANSWER swapped, only if (q0,a,q1)
+         * (a, q1,p0) -> (q1,q1),  if [p0] a => [p1]*/
+        // if [*] a -> [2] exists, and then for all [2].
+        // XXX reconsider, maybe TODO with delayed checks, bc l2_transitions are later reviewed
+        for (const transition &bq1 : l2.get_transitions())
         {
-          cs_game_node node_swp = {NODE_ATK, 0, bqq1.to(), p0, true};
-          attacker_nodes.insert(node_swp);
-          moves.insert({node_cpl, node_swp, 0, "q \u21d2 q'"});
+          size_t b = bq1.label(), q1 = bq1.to();
+
+          // strong q a-> q1 demonstrates, p0 a=> p1 simulates.
+          if (l2.action_label(b) == l1.action_label(a))
+          {
+            /* (a, q1, p0) -> (q1, p1), ... if p0 a=> p1.*/
+            cs_game_node bqp0 = {NODE_DEF, b, q1, p0, true};  // (b, q, p0)d
+            cs_game_node qp1 = {NODE_ATK, 0, q1, p1, true};  /// (q,p1)a
+            defender_nodes.insert(bqp0);
+            attacker_nodes.insert(qp1);
+            // todo_if.insert();  // waiting list for this move on condition.
+            moves.insert({bqp0, qp1, a, move_label});
+          }
+        }
+
+        /* Coupling, .. if p0 => p1 */
+        if (atau)  // for cplq0p0, answer the swapped cpl-challenge
+        {
+          cs_game_node p0p1 = {NODE_ATK, 0, p1, q0, false};  // swapping
+          attacker_nodes.insert(p0p1);
+          moves.insert({cplq0p0, p0p1, 0, "p \21d2 p'"});
+        }
+      }
+
+      // TODO this includes also weak, as challenge giver invalid, solve!
+      /* CREATED:
+       * challenge: q0 b -> q1
+       * answers : q0 b => q1,  if there's p0 b -> p1
+       * coupling : q0 => q1
+       */
+      for (const auto &t2 : l2_tran_from_node[q0])
+      {
+        size_t b = t2.first.label();
+        size_t q1 = t2.first.to();
+        bool btau = l2.is_tau(b);
+        bool strong = t2.second; // transition was strong
+
+        stream << (l2.action_label(b));
+        move_label = stream.str();
+        stream.str("");
+        stream.clear();
+
+        // --
+
+        // TODO only strong
+        if (strong)  // only strong
+        {
+          /* swapped.
+           * (q0,p0) -> (a,q1,p0),  if [q0] a -> [q1] */
+          cs_game_node bq1p0 = {NODE_DEF, b, q1, p0, true};
+          defender_nodes.insert(bq1p0);
+          moves.insert({q0p0, bq1p0, b, move_label});
+
+          if (btau)  // => answering q0 can also stay.
+          {
+            cs_game_node p0_stay = {NODE_ATK, 0, q1, p0, true};
+            attacker_nodes.insert(p0_stay);
+            moves.insert({bq1p0, p0_stay, 0, ""});
+          }
+        }
+
+        /* ANSWER, only if (p0,b,p1)
+         * (b, p1,q0) -> (p1,q1),  if [q0] a => [p1]*/
+        // if [*] a -> [2] exists, and then for all [2].
+        // XXX reconsider, maybe TODO with delayed checks, bc l2_transitions are later reviewed
+        for (const transition &ap1 : l1.get_transitions())
+        {
+          size_t a = ap1.label(), p1 = ap1.to();
+
+          // strong q a-> q1 demonstrates, p0 a=> p1 simulates.
+          if (l2.action_label(b) == l1.action_label(a))
+          {
+            /* (a, p1, q0) -> (p1, q1), ... if q0 a=> q1.*/
+            cs_game_node apq0 = {NODE_DEF, a, p1, q0, false};  // (a,p?,q0)d
+            cs_game_node pq1 = {NODE_ATK, 0, p1, q1, false};  // (p?,q1)a
+            defender_nodes.insert(apq0);
+            attacker_nodes.insert(pq1);
+            // todo_if.insert();  // waiting list for this move on condition.
+            moves.insert({apq0, pq1, b, move_label});
+          }
+        }
+
+        /* Coupling, .. if q0 => q1 */
+        if (btau)  // strong and weak, for cplp0q0
+        {
+          cs_game_node q0q1 = {NODE_ATK, 0, q1, p0, true};  // swapping
+          attacker_nodes.insert(q0q1);
+          moves.insert({cplp0q0, q0q1, 0, "q \21d2 q'"});
         }
       }
     }
   }
 
-  /* Create (swapped) Attacker nodes (Q,P),
-   * .. (swapped) similarity game defender nodes (B,Q,P) -> (Q,P)
-   * .. and answering similarity challenges (A,P,Q) => (P,Q)
-   */
-  // for (const transition t2 : l2.get_transitions())
-  for (const transition t2 : l2_weak_transitions)
-  {
-    size_t b, q0, q1;
-
-    b = t2.label();
-    q0 = t2.from();
-    q1 = t2.to();
-    bool b_is_tau = l2.is_tau(b);
-
-    /* only for all a in Act, which excludes tau-Actions.*/
-    // ACt includes tau
-
-    stream << l2.action_label(b);
-    move_label = stream.str();
-    stream.str("");
-    stream.clear();
-
-    /* Translate transition (p0) a -> (p1) to game nodes and moves:
-     * (p0,q) a -> (a,p1,q) for all q in t2.num_states()
-     * Create also (p0,q) -> (cpl, p0, q) */
-
-    for (size_t p = 0; p < l1.num_states(); p++)
-    {
-      /* Challange: Swapped (Weak) Simulation Game. */
-      // XXX
-      cs_game_node node_atk = {NODE_ATK, 0, q0, p, true};
-      cs_game_node node_sim = {NODE_DEF, b, q1, p, true};
-
-      attacker_nodes.insert(node_atk);
-      defender_nodes.insert(node_sim);
-
-      /* q0 -> q1 (swapped) .*/
-      moves.insert({node_atk, node_sim, b, move_label});
-      std::cout << "// 730 moves.insert({" << to_string(node_atk) << ", " << to_string(node_sim) << ", " << std::to_string(b) << ", " << move_label << "});\n";
-
-      if (b_is_tau)
-      {
-        /* If the demonstrator does tau, the simulator can optionally stay.
-         * == (q0,p) tau -> (tau,q1,p) -> (q1,p).*/
-        cs_game_node node_stay = {NODE_ATK, 0, q1, p, true};
-        attacker_nodes.insert(node_stay);
-        moves.insert({node_sim, node_stay, 0, ""});
-      }
-
-      /* And coupling.
-       * swp=(q0,p) -> cpl=(Cpl, q0,p) -> atk=(p1,q0) */
-      cs_game_node node_cpl = {NODE_CPL, 0, q0, p, true};
-      defender_nodes.insert(node_cpl);
-      moves.insert({node_atk, node_cpl, 0, "cpl"});
-
-      /* Weak bisim (just swap, just p' := p) can be always chosen.*/
-      cs_game_node node_bisim = {NODE_ATK, 0, p, q0, false};
-      attacker_nodes.insert(node_bisim);
-      moves.insert({node_cpl, node_bisim, 0, "bism'"});
-
-      /* Answer to challenge.
-       * (a,p,q0) -> (p,q1), if q0 a=> q1. */
-      for (transition bpp1 : t1_tran_into_node[p])
-      {
-        size_t a = bpp1.label();
-        if (l2.action_label(b) == l1.action_label(a))
-        {
-          moves.insert({
-              {NODE_DEF, a, p, q0, false},
-              {NODE_ATK, 0, p, q1, false},
-              b,
-              move_label});  // one weak step is no weak transition.
-        }
-
-        /* If a is a tau, answer that as coupling challenge.
-         * swp=(q0,p) -> cpl=(cpl, q0,p) -> atk=(p1,q0) */
-        if (l1.is_tau(a) && DEBUG_COUPLED_SIM_ENABLE)
-        {
-          /* swp=(q0,p) -> cpl=(Cpl, q0,p) -> atk=(p1,q0) */
-          cs_game_node node_swp = {NODE_ATK, 0, bpp1.to(), q0, false};
-          attacker_nodes.insert(node_swp);
-          moves.insert({node_cpl, node_swp, 0, "p0 \u21d2 p1'"});
-        }
-      }
-    }
-  }
-
-  move_label = "";
-
-  /* Add all Coupling challenges and their answers. */
-  for (size_t p = 0; false && p < l1.num_states(); p++) // XXX WIP
-  {
-    for (size_t q = 0; q < l2.num_states(); q++)
-    {
-      /* Challange coupling */
-      cs_game_node node_atk = {NODE_ATK, 0, p, q, false};
-      cs_game_node node_cpl = {NODE_CPL, 0, p, q, false};
-
-      attacker_nodes.insert(node_atk);
-      defender_nodes.insert(node_cpl);
-
-      cs_game_node node_swp = {NODE_ATK, 0, q, p, true}; // q' = q (bisim)
-      attacker_nodes.insert(node_swp);
-
-      moves.insert({node_atk, node_cpl, 0, ""});
-      // std::cout << "// 795 moves.insert({" << to_string(node_atk) << ", " << to_string(node_cpl) << ", " << std::to_string(0) << ", ''});\n";
-      moves.insert({node_cpl, node_swp, 0, ""});
-      // std::cout << "// 797 moves.insert({" << to_string(node_cpl) << ", " << to_string(node_swp) << ", " << std::to_string(0) << ", ''});\n";
-    }
-  }
       // DEBUG
   std::cout << "// Now, a Game with "
     << attacker_nodes.size() << " Attacker nodes, "
@@ -746,16 +697,12 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
   // DEBUG
   std::cout << "\n"
     << "\nvar show_lts_strong = show_lts1_strong + show_lts2_strong;\n"
-
     << "\nnomnoml.draw(document.getElementById(\"show-lts-input\"),"
     << " show_lts + show_lts_strong);"
-
     << "\nnomnoml.draw(document.getElementById(\"show-lts-weak\"),"
     << " show_lts + show_lts_strong + show_lts_weak);"
-
     << "\nnomnoml.draw(document.getElementById(\"show-lts-simulation\"),"
     << " show_lts + show_lts_strong + show_sim_related);"
-
     << "\nnomnoml.draw(document.getElementById(\"show-game-moves\"),"
     << " show_game_lost + show_game);"
     << "\n";
@@ -764,7 +711,9 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
   cs_game_node roots[]
     = {{NODE_ATK, 0, 0, 0, false}, {NODE_ATK, 0, 0, 0, true}};
 
-  bool similar = nodes_won[roots[0]] == WON_DEFENDER;  // root is in R
+  bool similar  // root is in R
+    = nodes_won[roots[0]] == WON_DEFENDER
+    && nodes_won[roots[1]] == WON_DEFENDER;
 
   std::cout
   << "document.getElementById(\"lts-relation\").innerHTML "
