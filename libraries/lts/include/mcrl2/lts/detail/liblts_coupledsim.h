@@ -153,6 +153,12 @@ bool operator<(const cs_game_move &m0, const cs_game_move &m1)
 template <class LTS_TYPE>
 bool coupled_simulation_compare(LTS_TYPE& l1, LTS_TYPE& l2)
 {
+
+  // ./liblts_weak_bisim.h:70
+  bool preserve_divergences = true;
+  weak_bisimulation_reduce(l1,preserve_divergences);
+  weak_bisimulation_reduce(l2,preserve_divergences);
+
   std::set<cs_game_node> attacker_nodes;  // (flag=NODE_ATK, placeholder, node::int, node::int)
   std::set<cs_game_node> defender_nodes;  // (flag, act::int, (node:int, node::int))
 
