@@ -13,30 +13,21 @@
 #ifndef _LIBLTS_COUPLED_SIM_H
 #define _LIBLTS_COUPLED_SIM_H
 
-#include <iostream>
-#include <cstdio>
 #include <cstdlib>
+#include <cstdio>
+#include <fstream>
+#include <iostream>
 #include <algorithm>
 #include <map>
 #include <stack>
 #include <string>
 #include <vector>
-#include "mcrl2/utilities/logger.h"
 #include "mcrl2/lts/lts.h"
 #include "mcrl2/lts/detail/liblts_bisim.h"
-#include "mcrl2/lts/detail/liblts_bisim_gjkw.h"
 #include "mcrl2/lts/detail/liblts_weak_bisim.h"
-#include "mcrl2/lts/detail/liblts_add_an_action_loop.h"
-#include "mcrl2/lts/detail/liblts_ready_sim.h"
-#include "mcrl2/lts/detail/liblts_failures_refinement.h"
-#include "mcrl2/lts/detail/tree_set.h"
-#include "mcrl2/lts/lts_equivalence.h"
-#include "mcrl2/lts/lts_preorder.h"
-#include "mcrl2/lts/sigref.h"
 #include "mcrl2/lts/transition.h"
 
-bool DEBUG_COUPLED_SIM_ENABLE = true;
-bool use_old_approch_before_20200219 = false;
+bool DEBUG_NOMNOML_JS = true;  // see https://github.com/skanaar/nomnoml
 
 namespace mcrl2
 {
@@ -160,8 +151,7 @@ bool operator<(const cs_game_move &m0, const cs_game_move &m1)
 // --
 
 template <class LTS_TYPE>
-bool coupled_simulation_compare(LTS_TYPE& l1,
-                         LTS_TYPE& l2)
+bool coupled_simulation_compare(LTS_TYPE& l1, LTS_TYPE& l2)
 {
   std::set<cs_game_node> attacker_nodes;  // (flag=NODE_ATK, placeholder, node::int, node::int)
   std::set<cs_game_node> defender_nodes;  // (flag, act::int, (node:int, node::int))
@@ -171,6 +161,9 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
   std::set<cs_game_move> moves;  // moves (node,node)
   std::string move_label; // label as string representation.
   std::ostringstream stream; // bypassing behavior (workaround for DEBUG)
+
+  std::ofstream debug_nomnoml_js;
+  debug_nomnoml_js.open("/tmp/debug-ltscompare-coupledsim.js");
 
   /* Define game nodes here. */
 
@@ -184,7 +177,7 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
     l2_tran_from_node, l2_tran_into_node,
     l1_tran_from_node, l1_tran_into_node;
 
-  std::cout
+  if (DEBUG_NOMNOML_JS) debug_nomnoml_js
     << "// Restructure given LTS data structures, "
     << " get meta and chain weak-transitions\n"
     << "var show_lts = \""
@@ -199,7 +192,7 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
     << "\\n# .q: fill=#ACA8F0 circle\\n\";\n\n";
 
   { // restructure l1 => get meta data and chain weak transitions.
-    std::cout << "var show_lts1_strong = \"\";\n";
+    if (DEBUG_NOMNOML_JS) debug_nomnoml_js << "var show_lts1_strong = \"\";\n";
     for (const transition t1 : l1.get_transitions())
     {
       l1_tran_from_node[t1.from()][t1] = true;  // outgoing
@@ -215,12 +208,12 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
       l1_weak_transitions.insert(transition(t1.to(), 0, t1.to()));
 
       // DEBUG
-      std::cout << "show_lts1_strong += \"\\n[<p>p" << t1.from() << "]"
+      if (DEBUG_NOMNOML_JS) debug_nomnoml_js << "show_lts1_strong += \"\\n[<p>p" << t1.from() << "]"
         << " -> "
         << " " << (l1.action_label(t1.label()))
         << " [<p>p" << t1.to() << "]\";\n";
     }
-    std::cout << "show_lts2_strong += \"\\n\";\n";
+    if (DEBUG_NOMNOML_JS) debug_nomnoml_js << "show_lts2_strong += \"\\n\";\n";
 
     /* Add weak transititions. */
     // on branching copy path and add all branches fins as fins.
@@ -279,7 +272,7 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
   }
 
   { // ANALOG for l2
-    std::cout << "var show_lts2_strong = \"\";\n";
+    if (DEBUG_NOMNOML_JS) debug_nomnoml_js << "var show_lts2_strong = \"\";\n";
     for (const transition t2 : l2.get_transitions())
     {
       l2_tran_from_node[t2.from()][t2] = true;  // outgoing
@@ -294,12 +287,12 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
       l2_weak_transitions.insert(transition(t2.to(), 0, t2.to()));
 
       // DEBUG
-      std::cout << "show_lts2_strong += \"\\n[<q>q" << t2.from() << "]"
+      if (DEBUG_NOMNOML_JS) debug_nomnoml_js << "show_lts2_strong += \"\\n[<q>q" << t2.from() << "]"
         << " -> "
         << " " << (l2.action_label(t2.label()))
         << " [<q>q" << t2.to() << "]\";\n";
     }
-    std::cout << "show_lts2_strong += \"\\n\";\n";
+    if (DEBUG_NOMNOML_JS) debug_nomnoml_js << "show_lts2_strong += \"\\n\";\n";
 
     /* Add weak transititions. */
     // on branching copy path and add all branches fins as fins.
@@ -357,7 +350,7 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
     }  // done l2 tau forest (all tau pathes).
   }
 
-  std::cout << "\n// show all out, including weak;\nvar show_lts_weak = \"\";\n";
+  if (DEBUG_NOMNOML_JS) debug_nomnoml_js << "\n// show all out, including weak;\nvar show_lts_weak = \"\";\n";
   for (size_t p = 0; p < l1.num_states(); p++)
   {
       for (const auto &out : l1_tran_from_node[p])
@@ -368,7 +361,7 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
             != l1.get_transitions().end())
           continue; // strong, skip
 
-        std::cout << "show_lts_weak += \"\\n"
+        if (DEBUG_NOMNOML_JS) debug_nomnoml_js << "show_lts_weak += \"\\n"
           << "[<p>p" << out.first.from() << "]"
           << " --> "
           << " " << out.first.label()
@@ -391,7 +384,7 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
             != l2.get_transitions().end())
           continue; // strong, skip
 
-        std::cout << " show_lts_weak += \"\\n"
+        if (DEBUG_NOMNOML_JS) debug_nomnoml_js << " show_lts_weak += \"\\n"
           << "[<q>q" << out.first.from() << "]"
           << " --> "
           << " " << out.first.label()
@@ -401,8 +394,11 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
       }
   }
 
-  std::cout << "// Attacker nodes (p,q)a in Ga ... as S1 x S2 aka all possible pairs between them\n";
-  std::cout << "// Prepare defender nodes 1: all possible nodes, and how they are reached.\n";
+  if (DEBUG_NOMNOML_JS) debug_nomnoml_js
+    << "// Attacker nodes (p,q)a in Ga"
+    << "... as S1 x S2 aka all possible pairs between them\n"
+    << "// Prepare defender nodes 1: "
+    << "all possible nodes, and how they are reached.\n";
 
   // TODO(nox) 2020-02-08: How do I call them on the answering stuff?
   // They are not the same like the normal transition labels. :<
@@ -568,34 +564,35 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
   }
 
       // DEBUG
-  std::cout << "// Now, a Game with "
+  if (DEBUG_NOMNOML_JS) debug_nomnoml_js << "// Now, a Game with "
     << attacker_nodes.size() << " Attacker nodes, "
     << defender_nodes.size() << " Defender nodes and "
     << moves.size() << " (unready) moves exists\n";
 
-  std::cout << "// Get all the predecessors.\n";
-  std::cout << "// Count their successors\n";
-  std::cout << "// Mark everyone won by defender (d)\n";
+  if (DEBUG_NOMNOML_JS) if (DEBUG_NOMNOML_JS) debug_nomnoml_js
+      << "// Get all the predecessors.\n"
+      << "// Count their successors\n"
+      << "// Mark everyone won by defender (d)\n";
 
   std::map<cs_game_node,std::set<cs_game_node>> predecessors;
   std::map<cs_game_node,int> successor_count;
-  std::map<cs_game_node,int> nodes_won;
-  const int WON_DEFENDER = 0, WON_ATTACKER = 1;
+  std::map<cs_game_node,int> node_winner;
+  const int WIN_DEFENDER = 0, WIN_ATTACKER = 1;
 
-  std::cout // XXX REMOVE_ME
-    << "var show_game "
-    << "= \"\\n#title: ltscompare_coupledsim_csgame"
-    << "\\n#fontSize: 10"
-    << "\\n#arrowSize: 0.5"
-    << "\\n#lineWidth: 1.0"
-    << "\\n#zoom: 1.0"
-    << "\\n#edges: rounded"
-    << "\\n#.a: fill=#f77"
-    << "\\n#.d: fill=#7f7 visual=roundrect"
-    << "\\n#.l: visual=none"
-    << "\\n#ranker: longest-path"
-    << "\\n#gutter: 100"
-    << "\\n#direction: right\\n\";\n";
+  if (DEBUG_NOMNOML_JS) debug_nomnoml_js // XXX REMOVE_ME
+      << "var show_game "
+      << "= \"\\n#title: ltscompare_coupledsim_csgame"
+      << "\\n#fontSize: 10"
+      << "\\n#arrowSize: 0.5"
+      << "\\n#lineWidth: 1.0"
+      << "\\n#zoom: 1.0"
+      << "\\n#edges: rounded"
+      << "\\n#.a: fill=#f77"
+      << "\\n#.d: fill=#7f7 visual=roundrect"
+      << "\\n#.l: visual=none"
+      << "\\n#ranker: longest-path"
+      << "\\n#gutter: 100"
+      << "\\n#direction: right\\n\";\n";
 
   for (const auto &m : moves)
   {
@@ -603,8 +600,8 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
     cs_game_node succ = m.to;
 
     /* All nodes set won by defender. */
-    nodes_won[pred] = WON_DEFENDER;
-    nodes_won[succ] = WON_DEFENDER;
+    node_winner[pred] = WIN_DEFENDER;
+    node_winner[succ] = WIN_DEFENDER;
 
     /* Update predecessors for succ.
      * Predecessors[succ] += [pred] */
@@ -614,18 +611,20 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
     successor_count[pred] += 1;  // "append" successors.
 
     // DEBUG
-    std::cout << "show_game += \"\\n" << to_string(m) << "\";\n";
+    if (DEBUG_NOMNOML_JS) debug_nomnoml_js << "show_game += \"\\n" << to_string(m) << "\";\n";
   }
-  std::cout << "show_game += \"\\n\";\n";
 
-  std::cout << "\n// Run: Computing Winning Regions.\n";
+  if (DEBUG_NOMNOML_JS) debug_nomnoml_js
+      << "show_game += \"\\n\";\n"
+      << "\n// Run: Computing Winning Regions.\n";
 
   std::stack<cs_game_node> todo;
   for (cs_game_node d : defender_nodes) todo.push(d); // XXX make me better
   // todo.assign(defender_nodes.begin(), defender_nodes.end());
 
-  std::cout << "// propagate_attacker_win for ...\n\n";
-  std::cout << "var show_game_lost = \"\";\n";
+  if (DEBUG_NOMNOML_JS) debug_nomnoml_js
+      << "// propagate_attacker_win for ...\n\n"
+      << "var show_game_lost = \"\";\n";
 
   /* Calculate winning region. */
   while (!todo.empty())
@@ -636,10 +635,10 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
 
     if (successor_count[n] <= 0)
     {
-      std::cout << "show_game_lost += \"\\n[<l>" << to_string(n) << "]\";\n";
-      if (nodes_won[n] == WON_DEFENDER)
+      if (DEBUG_NOMNOML_JS) debug_nomnoml_js << "show_game_lost += \"\\n[<l>" << to_string(n) << "]\";\n";
+      if (node_winner[n] == WIN_DEFENDER)
       {
-        nodes_won[n] = WON_ATTACKER;
+        node_winner[n] = WIN_ATTACKER;
 
         /* now reduce it from all predecessors as successor.
          * and check if the predecessor is also about to be won by the
@@ -649,7 +648,7 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
           successor_count[pred] -= 1;
           if (successor_count[pred] < 1 || attacker_nodes.count(pred))
           {
-            std::cout << "// .. next : " << to_string(pred) << "\n";
+            if (DEBUG_NOMNOML_JS) debug_nomnoml_js << "// .. next : " << to_string(pred) << "\n";
             todo.push(pred);
             successor_count[pred] = 0; // to propagate next run.
           }
@@ -657,74 +656,74 @@ bool coupled_simulation_compare(LTS_TYPE& l1,
       }
     }
   }
-  std::cout << "show_game_lost += \"\\n\";\n";
 
-  std::cout << "\n\nvar R = \"{";
+  if (DEBUG_NOMNOML_JS) debug_nomnoml_js
+      << "show_game_lost += \"\\n\";\n"
+      << "\n\nvar R = \"{";
+
   char seperator[3] = {'\0', ' ', '\0'};
 
   /* Filter R, where its elemens are coupled similar. */
   std::set<cs_game_node> cs_relation;
-  for (const auto &pq : attacker_nodes)
+  for (const auto &n : attacker_nodes)
   {
-    if (nodes_won.find(pq) == nodes_won.end())
+    if (node_winner.find(n) == node_winner.end())
     {
-      std::cout << "I am requested, but never listed. Set to default\n";
+      std::cerr << "I am requested, but never listed. Set to default. (" << to_string(n) << std::endl;
     }
 
-    if (nodes_won[pq] == WON_DEFENDER)
+    if (node_winner[n] == WIN_DEFENDER)
     {
-      cs_relation.insert(pq);
-      std::cout << seperator << to_string(pq);
+      cs_relation.insert(n);
+      if (DEBUG_NOMNOML_JS) debug_nomnoml_js << seperator << to_string(n);
       seperator[0] = ',';
     }
   }
-  std::cout << "}\";\n";
-
-  std::string fst, snd;
-  if (true)  // DEBUG
-  {
-    std::cout << "\n\n// Show linking.\n";
-    std::cout << "var show_sim_related = \"\";\n";
-    for (const auto &n : cs_relation)
-    {
-      fst = !n.swapped ? "<p>p" : "<q>q";
-      snd = !n.swapped ? "<q>q" : "<p>p";
-      std::cout << "show_sim_related += \"\\n[" << fst << n.p << "] --> [" << snd << n.q << "]\";\n";
-    }
-  }
-  std::cout << "show_sim_related += \"\\n\";\n";
-
-  // DEBUG
-  std::cout << "\n"
-    << "\nvar show_lts_strong = show_lts1_strong + show_lts2_strong;\n"
-    << "\nnomnoml.draw(document.getElementById(\"show-lts-input\"),"
-    << " show_lts + show_lts_strong);"
-    << "\nnomnoml.draw(document.getElementById(\"show-lts-weak\"),"
-    << " show_lts + show_lts_strong + show_lts_weak);"
-    << "\nnomnoml.draw(document.getElementById(\"show-lts-simulation\"),"
-    << " show_lts + show_lts_strong + show_sim_related);"
-    << "\nnomnoml.draw(document.getElementById(\"show-game-moves\"),"
-    << " show_game_lost + show_game);"
-    << "\n";
+  if (DEBUG_NOMNOML_JS) debug_nomnoml_js << "}\";\n";
 
   /* Return true iff root nodes are in R / won by defender. */
   cs_game_node roots[]
     = {{NODE_ATK, 0, 0, 0, false}, {NODE_ATK, 0, 0, 0, true}};
 
   bool similar  // root is in R
-    = nodes_won[roots[0]] == WON_DEFENDER
-    && nodes_won[roots[1]] == WON_DEFENDER;
+    = node_winner[roots[0]] == WIN_DEFENDER
+    && node_winner[roots[1]] == WIN_DEFENDER;
 
-  std::cout
-  << "document.getElementById(\"lts-relation\").innerHTML "
-  << "= \"R = \" + R + \"</br>"
-  << "&rArr; <b>" << (similar ? "true" : "false") << "</b>\";";
+  // DEBUG
+  std::string fst, snd;
+  if (DEBUG_NOMNOML_JS)  // DEBUG
+  {
+    debug_nomnoml_js << "\n\n// Show linking.\n";
+    debug_nomnoml_js << "var show_sim_related = \"\";\n";
+    for (const auto &n : cs_relation)
+    {
+      fst = !n.swapped ? "<p>p" : "<q>q";
+      snd = !n.swapped ? "<q>q" : "<p>p";
+      debug_nomnoml_js
+        << "show_sim_related += \"\\n"
+        << "[" << fst << n.p << "] --> [" << snd << n.q << "]\";\n";
+    }
 
-  std::cout << "\n\n// ";
+    debug_nomnoml_js
+      << "show_sim_related += \"\\n\";\n"
+      << "document.getElementById(\"lts-relation\").innerHTML "
+      << "= \"R = \" + R + \"</br>"
+      << "&rArr; <b style='font-size:200%;color:" << (similar ? "#0f0;'>true" : "f00;'>false") << "</b>\";\n"
+      << "\nvar show_lts_strong = show_lts1_strong + show_lts2_strong;\n"
+      << "\nnomnoml.draw(document.getElementById(\"show-lts-input\"),"
+      << " show_lts + show_lts_strong);"
+      << "\nnomnoml.draw(document.getElementById(\"show-lts-weak\"),"
+      << " show_lts + show_lts_strong + show_lts_weak);"
+      << "\nnomnoml.draw(document.getElementById(\"show-lts-simulation\"),"
+      << " show_lts + show_lts_strong + show_sim_related);"
+      << "\nnomnoml.draw(document.getElementById(\"show-game-moves\"),"
+      << " show_game_lost + show_game);"
+      << "\n";
+  }
 
   return similar;
 }
-} // end namespace detail
-} // end namespace lts
-} // end namespace mclr
-#endif // _LIBLTS_COUPLED_SIM_H
+}  // end namespace detail
+}  // end namespace lts
+}  // end namespace mclr
+#endif  // _LIBLTS_COUPLED_SIM_H
