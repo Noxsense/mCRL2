@@ -153,6 +153,8 @@ bool operator<(const cs_game_move &m0, const cs_game_move &m1)
 template <class LTS_TYPE>
 bool coupled_simulation_compare(LTS_TYPE& l1, LTS_TYPE& l2)
 {
+  // if debug is activated, log also into nomnoml
+  DEBUG_NOMNOML_JS = mCRL2logEnabled(log::debug);
 
   // ./liblts_weak_bisim.h:70
   bool preserve_divergences = true;
@@ -169,7 +171,8 @@ bool coupled_simulation_compare(LTS_TYPE& l1, LTS_TYPE& l2)
   std::ostringstream stream; // bypassing behavior (workaround for DEBUG)
 
   std::ofstream debug_nomnoml_js;
-  debug_nomnoml_js.open("/tmp/debug-ltscompare-coupledsim.js");
+  if (DEBUG_NOMNOML_JS)
+    debug_nomnoml_js.open("/tmp/debug-ltscompare-coupledsim.js");
 
   /* Define game nodes here. */
 
