@@ -1,5 +1,5 @@
 // Author(s): Huong Ngoc Le
-//
+
 // Copyright: see the accompanying file COPYING or copy at
 // https://github.com/mCRL2org/mCRL2/blob/master/COPYING
 //
@@ -35,6 +35,8 @@
 #include "mcrl2/lts/detail/liblts_bisim.h"
 #include "mcrl2/lts/detail/liblts_weak_bisim.h"
 #include "mcrl2/lts/transition.h"
+
+bool DEBUG_NOMNOML_JS = true;  // see https://github.com/skanaar/nomnoml
 
 namespace mcrl2
 {
@@ -119,6 +121,24 @@ namespace detail
   }
 
   // support
+  std::string to_string(const cs_game_move &m)
+  {
+    std::string tag0 = m.from.flag == NODE_ATK ? "<a>" : "<d>";
+    std::string tag1 = m.to.flag == NODE_ATK ? "<a>" : "<d>";
+
+    std::string alabel
+      = m.to.flag != NODE_DEF
+      ? ""
+      : " " + std::to_string(m.act) + "=" + m.label_of_action;
+
+    return
+      "[" + tag0 + to_string(m.from) + "] "
+      + (m.weak ? " --> " : " -> ")
+      + alabel
+      + " [" + tag1 + to_string(m.to) + "]";
+  }
+
+  // support
   bool equals(
       const cs_game_move &m0,
       const cs_game_move &m1,
@@ -138,6 +158,9 @@ namespace detail
 template <class LTS_TYPE>
   bool coupled_simulation_compare(LTS_TYPE& l1, LTS_TYPE& l2)
   {
+    // if debug is activated, log also into nomnoml
+    DEBUG_NOMNOML_JS = mCRL2logEnabled(log::debug);
+
     // ./liblts_weak_bisim.h:70
     bool preserve_divergences = true;
     weak_bisimulation_reduce(l1,preserve_divergences);
@@ -163,6 +186,10 @@ template <class LTS_TYPE>
     std::string move_label; // label as string representation.
     std::ostringstream stream; // bypassing behavior (workaround for DEBUG)
 
+    std::ofstream debug_nomnoml_js;
+    if (DEBUG_NOMNOML_JS)
+      debug_nomnoml_js.open("/tmp/debug-ltscompare-coupledsim.js");
+
     /* Define game nodes here. */
 
     /* Get Weak transitions. */
@@ -179,7 +206,22 @@ template <class LTS_TYPE>
       << "Find weak transitions."
       << std::endl;
 
+    if (DEBUG_NOMNOML_JS) debug_nomnoml_js
+      << "// Restructure given LTS data structures, "
+        << " get meta and chain weak-transitions\n"
+        << "var show_lts = \""
+        << "\\n# zoom: 1.0"
+        //<< "\\n# edgeMargin: 1.0"
+        << "\\n# gutter: 200.0"
+        << "\\n# fontSize: 10"
+        << "\\n# arrowSize: 0.5"
+        << "\\n# lineWidth: 1.0"
+        << "\\n# stroke: #000"
+        << "\\n# .p: fill=#D9D64F circle"
+        << "\\n# .q: fill=#ACA8F0 circle\\n\";\n\n";
+
     { // restructure l1 => get meta data and chain weak transitions.
+      if (DEBUG_NOMNOML_JS) debug_nomnoml_js << "var show_lts1_strong = \"\";\n";
       for (const transition t1 : l1.get_transitions())
       {
         l1_tran_from_node[t1.from()][t1] = true;  // outgoing
@@ -193,7 +235,14 @@ template <class LTS_TYPE>
         // add tau loop for everyone.
         l1_weak_transitions.insert(transition(t1.from(), 0, t1.from()));
         l1_weak_transitions.insert(transition(t1.to(), 0, t1.to()));
+
+        // DEBUG
+        if (DEBUG_NOMNOML_JS) debug_nomnoml_js << "show_lts1_strong += \"\\n[<p>p" << t1.from() << "]"
+          << " -> "
+            << " " << (l1.action_label(t1.label()))
+            << " [<p>p" << t1.to() << "]\";\n";
       }
+      if (DEBUG_NOMNOML_JS) debug_nomnoml_js << "show_lts2_strong += \"\\n\";\n";
 
       /* Add weak transititions. */
       // on branching copy path and add all branches fins as fins.
@@ -252,6 +301,7 @@ template <class LTS_TYPE>
     }
 
     { // ANALOG for l2
+      if (DEBUG_NOMNOML_JS) debug_nomnoml_js << "var show_lts2_strong = \"\";\n";
       for (const transition t2 : l2.get_transitions())
       {
         l2_tran_from_node[t2.from()][t2] = true;  // outgoing
@@ -264,7 +314,14 @@ template <class LTS_TYPE>
         // add tau loop for everyone.
         l2_weak_transitions.insert(transition(t2.from(), 0, t2.from()));
         l2_weak_transitions.insert(transition(t2.to(), 0, t2.to()));
+
+        // DEBUG
+        if (DEBUG_NOMNOML_JS) debug_nomnoml_js << "show_lts2_strong += \"\\n[<q>q" << t2.from() << "]"
+          << " -> "
+            << " " << (l2.action_label(t2.label()))
+            << " [<q>q" << t2.to() << "]\";\n";
       }
+      if (DEBUG_NOMNOML_JS) debug_nomnoml_js << "show_lts2_strong += \"\\n\";\n";
 
       /* Add weak transititions. */
       // on branching copy path and add all branches fins as fins.
@@ -324,6 +381,59 @@ template <class LTS_TYPE>
     mCRL2log(log::verbose)
       << "Creating now the cs-game arena."
       << std::endl;
+
+    if (DEBUG_NOMNOML_JS) debug_nomnoml_js << "\n// show all out, including weak;\nvar show_lts_weak = \"\";\n";
+    for (size_t p = 0; p < l1.num_states(); p++)
+    {
+      for (const auto &out : l1_tran_from_node[p])
+      {
+        if (std::find(
+              l1.get_transitions().begin(),
+              l1.get_transitions().end(), out.first)
+            != l1.get_transitions().end())
+          continue; // strong, skip
+
+        if (DEBUG_NOMNOML_JS) debug_nomnoml_js << "show_lts_weak += \"\\n"
+          << "[<p>p" << out.first.from() << "]"
+            << " --> "
+            << " " << out.first.label()
+            << ":" << l1.action_label(out.first.label()) << " "
+            << "[<p>p" << out.first.to() << "]"
+            << "\";\n";
+      }
+    }
+
+    // DEBUG: Show all new inserted outgoing nodes (by weak transition
+    // creation)
+    for (size_t q = 0; q < l2.num_states(); q++)
+    {
+      for (const auto &out : l2_tran_from_node[q])
+      {
+        if (std::find(
+              l2.get_transitions().begin(),
+              l2.get_transitions().end(),
+              out.first)
+            != l2.get_transitions().end())
+          continue; // strong, skip
+
+        if (DEBUG_NOMNOML_JS) debug_nomnoml_js << " show_lts_weak += \"\\n"
+          << "[<q>q" << out.first.from() << "]"
+            << " --> "
+            << " " << out.first.label()
+            << ":" << l2.action_label(out.first.label()) << " "
+            << "[<q>q" << out.first.to() << "]"
+            << "\";\n";
+      }
+    }
+
+    if (DEBUG_NOMNOML_JS) debug_nomnoml_js
+      << "// Attacker nodes (p,q)a in Ga"
+        << "... as S1 x S2 aka all possible pairs between them\n"
+        << "// Prepare defender nodes 1: "
+        << "all possible nodes, and how they are reached.\n";
+
+    // TODO(nox) 2020-02-08: How do I call them on the answering stuff?
+    // They are not the same like the normal transition labels. :<
 
     for (size_t p0 = 0; p0 < l1.num_states(); p0++)
     {
@@ -493,6 +603,31 @@ template <class LTS_TYPE>
     // if linked before, we need to check, if it's already inserted,
     // otherwise it counts duplicated, though they were replaced by set
     // attribites.
+    // DEBUG
+    if (DEBUG_NOMNOML_JS) debug_nomnoml_js << "// Now, a Game with "
+      << attacker_nodes.size() << " Attacker nodes, "
+        << defender_nodes.size() << " Defender nodes and "
+        << moves.size() << " (unready) moves exists\n";
+
+    if (DEBUG_NOMNOML_JS) if (DEBUG_NOMNOML_JS) debug_nomnoml_js
+      << "// Get all the predecessors.\n"
+        << "// Count their successors\n"
+        << "// Mark everyone won by defender (d)\n";
+
+    if (DEBUG_NOMNOML_JS) debug_nomnoml_js // XXX REMOVE_ME
+      << "var show_game "
+        << "= \"\\n#title: ltscompare_coupledsim_csgame"
+        << "\\n#fontSize: 10"
+        << "\\n#arrowSize: 0.5"
+        << "\\n#lineWidth: 1.0"
+        << "\\n#zoom: 1.0"
+        << "\\n#edges: rounded"
+        << "\\n#.a: fill=#f77"
+        << "\\n#.d: fill=#7f7 visual=roundrect"
+        << "\\n#.l: visual=none"
+        << "\\n#ranker: longest-path"
+        << "\\n#gutter: 100"
+        << "\\n#direction: right\\n\";\n";
 
     for (const auto &m : moves)
     {
@@ -509,7 +644,14 @@ template <class LTS_TYPE>
 
       /* Update succesors for the pred. */
       successor_count[pred] += 1;  // "append" successors.
+
+      // DEBUG
+      if (DEBUG_NOMNOML_JS) debug_nomnoml_js << "show_game += \"\\n" << to_string(m) << "\";\n";
     }
+
+    if (DEBUG_NOMNOML_JS) debug_nomnoml_js
+      << "show_game += \"\\n\";\n"
+        << "\n// Run: Computing Winning Regions.\n";
 
     std::stack<cs_game_node> todo;
     for (cs_game_node d : defender_nodes) todo.push(d); // XXX make me better
@@ -517,6 +659,10 @@ template <class LTS_TYPE>
 
     mCRL2log(log::verbose)
       << "Compute the winning area of the defender." << std::endl;
+
+    if (DEBUG_NOMNOML_JS) debug_nomnoml_js
+      << "// propagate_attacker_win for ...\n\n"
+        << "var show_game_lost = \"\";\n";
 
     /* Calculate winning region. */
     while (!todo.empty())
@@ -527,6 +673,7 @@ template <class LTS_TYPE>
 
       if (successor_count[n] <= 0)
       {
+        if (DEBUG_NOMNOML_JS) debug_nomnoml_js << "show_game_lost += \"\\n[<l>" << to_string(n) << "]\";\n";
         if (node_winner[n] == WIN_DEFENDER)
         {
           node_winner[n] = WIN_ATTACKER;
@@ -539,6 +686,7 @@ template <class LTS_TYPE>
             successor_count[pred] -= 1;
             if (successor_count[pred] < 1 || attacker_nodes.count(pred))
             {
+              if (DEBUG_NOMNOML_JS) debug_nomnoml_js << "// .. next : " << to_string(pred) << "\n";
               todo.push(pred);
               successor_count[pred] = 0; // to propagate next run.
             }
@@ -553,6 +701,10 @@ template <class LTS_TYPE>
 
     char seperator[3] = {'\0', ' ', '\0'};
     mCRL2log(log::verbose) << "R = {";
+    if (DEBUG_NOMNOML_JS)
+    {
+      debug_nomnoml_js << "show_game_lost += \"\\n\";\n\n\nvar R = \"{";
+    }
 
     /* Filter R, where its elemens are coupled similar. */
     std::set<cs_game_node> cs_relation;
@@ -569,11 +721,19 @@ template <class LTS_TYPE>
       {
         cs_relation.insert(n);
         mCRL2log(log::verbose) << seperator << to_string(n);
+        if (DEBUG_NOMNOML_JS)
+        {
+          debug_nomnoml_js << seperator << to_string(n);
+        }
         seperator[0] = ',';
       }
     }
 
     mCRL2log(log::verbose) << "}" << std::endl;
+    if (DEBUG_NOMNOML_JS)
+    {
+      debug_nomnoml_js << "}\";\n";
+    }
 
     /* Return true iff root nodes are in R / won by defender. */
     cs_game_node roots[]
@@ -583,6 +743,38 @@ template <class LTS_TYPE>
     bool similar  // root is in R
       = node_winner[roots[0]] == WIN_DEFENDER
       && node_winner[roots[1]] == WIN_DEFENDER;
+
+    // DEBUG
+    std::string fst, snd;
+    if (DEBUG_NOMNOML_JS)  // DEBUG
+    {
+      debug_nomnoml_js << "\n\n// Show linking.\n";
+      debug_nomnoml_js << "var show_sim_related = \"\";\n";
+      for (const auto &n : cs_relation)
+      {
+        fst = !n.swapped ? "<p>p" : "<q>q";
+        snd = !n.swapped ? "<q>q" : "<p>p";
+        debug_nomnoml_js
+          << "show_sim_related += \"\\n"
+          << "[" << fst << n.p << "] --> [" << snd << n.q << "]\";\n";
+      }
+
+      debug_nomnoml_js
+        << "show_sim_related += \"\\n\";\n"
+        << "document.getElementById(\"lts-relation\").innerHTML "
+        << "= \"R = \" + R + \"</br>"
+        << "&rArr; <b style='font-size:200%;color:" << (similar ? "#0f0;'>true" : "f00;'>false") << "</b>\";\n"
+        << "\nvar show_lts_strong = show_lts1_strong + show_lts2_strong;\n"
+        << "\nnomnoml.draw(document.getElementById(\"show-lts-input\"),"
+        << " show_lts + show_lts_strong);"
+        << "\nnomnoml.draw(document.getElementById(\"show-lts-weak\"),"
+        << " show_lts + show_lts_strong + show_lts_weak);"
+        << "\nnomnoml.draw(document.getElementById(\"show-lts-simulation\"),"
+        << " show_lts + show_lts_strong + show_sim_related);"
+        << "\nnomnoml.draw(document.getElementById(\"show-game-moves\"),"
+        << " show_game_lost + show_game);"
+        << "\n";
+    }
 
     return similar;
   }
